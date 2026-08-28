@@ -918,11 +918,6 @@ function Detalhe({ r, isFav, onToggleFav, testada, onToggleTestada, onVoltar }) 
             color: "var(--color-text)", resize: "vertical",
           }}
         />
-        <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--color-neutral-400)" }}>
-          Fica só neste navegador — não é salva no repositório nem aparece em outro
-          aparelho. Para uma nota que todo mundo vê, edite a receita no GitHub e
-          acrescente uma seção "## Minhas notas".
-        </p>
       </div>
 
       <div style={{ borderTop: "2px solid var(--color-divider)", marginTop: 32, paddingTop: 14 }}>
@@ -940,11 +935,6 @@ function Detalhe({ r, isFav, onToggleFav, testada, onToggleTestada, onVoltar }) 
             {r.tags.map((t) => <Etiqueta key={t}>{t}</Etiqueta>)}
           </div>
         )}
-        <div style={{ marginTop: 14, fontSize: 12, color: "var(--color-neutral-700)" }}>
-          <a href={"https://github.com/receitasecomidas/main/edit/main/receitas/" + r.id + ".md"} target="_blank" rel="noopener noreferrer">
-            Editar esta receita no GitHub ↗
-          </a>
-        </div>
       </div>
     </div>
   );
