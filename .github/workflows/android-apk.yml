@@ -1,0 +1,99 @@
+name: Gerar APK Android
+
+# Manual, por padrão. Um build de Android demora alguns minutos e este repo
+# recebe muitos pushes pequenos (uma receita nova por vez) — gerar o APK a
+# cada um seria desperdício. Rode pela aba Actions > "Gerar APK Android" >
+# "Run workflow" sempre que quiser uma versão nova no celular.
+#
+# Se preferir automático, descomente e ajuste:
+# on:
+#   push:
+#     branches: [main]
+#     paths: ["index.html", "receitas/**", "mobile/**"]
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Regenerar dados/receitas.json
+        run: python3 scripts/build_index.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Instalar dependências do Capacitor
+        working-directory: mobile
+        run: npm ci
+
+      - name: Montar os assets web (mesmo index.html e dados do site)
+        run: |
+          mkdir -p mobile/www/dados
+          cp index.html mobile/www/index.html
+          cp dados/receitas.json mobile/www/dados/receitas.json
+
+      - name: Sincronizar com o projeto Android
+        working-directory: mobile
+        run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21" # exigido pelo Capacitor 8 (sourceCompatibility 21)
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Instalar a plataforma e as build-tools do Android
+        run: |
+          COMPILE_SDK=$(grep -oP 'compileSdkVersion\s*=\s*\K[0-9]+' mobile/android/variables.gradle)
+          echo "compileSdk: $COMPILE_SDK"
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-$COMPILE_SDK" "build-tools;$COMPILE_SDK.0.0"
+
+      - name: Usar uma chave de debug estável
+        run: |
+          mkdir -p ~/.android
+          cp mobile/debug.keystore ~/.android/debug.keystore
+        # Sem isso, cada execução deste workflow assina o APK com uma chave
+        # nova (o Gradle gera uma sozinho se não achar nenhuma), e o Android
+        # recusa instalar um "update" assinado com chave diferente — seria
+        # preciso desinstalar o app antes de cada APK novo. Com a chave fixa
+        # (não é segredo: é só a chave de debug, o Android trata como não
+        # confiável para a Play Store de qualquer forma), reinstalar por
+        # cima funciona normalmente.
+
+      - name: Compilar o APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Publicar o APK como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: receitas-e-comidas-${{ github.run_number }}
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 90
+
+      - name: Resumo
+        run: |
+          echo "### APK pronto 📱" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Baixe em **Summary** desta execução, na seção *Artifacts* logo abaixo." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "No celular: baixe o \`.zip\`, extraia o \`.apk\`, abra o arquivo." >> "$GITHUB_STEP_SUMMARY"
+          echo "O Android vai pedir para permitir instalar de fora da Play Store — é esperado." >> "$GITHUB_STEP_SUMMARY"

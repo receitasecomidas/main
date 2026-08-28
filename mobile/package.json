@@ -1,0 +1,14 @@
+{
+  "name": "receitas-e-comidas-app",
+  "version": "1.0.0",
+  "description": "Empacota o site em app Android via Capacitor",
+  "private": true,
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0"
+  }
+}

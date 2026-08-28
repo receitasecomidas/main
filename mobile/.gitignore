@@ -1,0 +1,6 @@
+# Dependências do Node - reinstaladas via `npm ci` no workflow
+node_modules/
+
+# Assets web montados a partir de ../index.html e ../dados/receitas.json
+# antes de cada build. Gerado, não editar aqui.
+www/

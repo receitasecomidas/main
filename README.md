@@ -126,6 +126,31 @@ tradução nas medidas.
 Se você é autor de alguma receita listada e quer correção de crédito ou remoção,
 [abra uma issue](https://github.com/receitasecomidas/main/issues).
 
+## App Android (APK)
+
+O mesmo site empacotado como app, via [Capacitor](https://capacitorjs.com/): o `index.html`
+e o `dados/receitas.json` vão dentro do APK, então o app funciona **sem internet** — útil na
+cozinha, onde o wifi nem sempre chega.
+
+**Para gerar um APK:** na aba **Actions** deste repositório, abra **Gerar APK Android** →
+**Run workflow**. Em alguns minutos o resultado fica disponível como *artifact* na página
+da execução — baixe o `.zip`, extraia o `.apk` e abra no celular. O Android vai pedir
+permissão para instalar de fora da Play Store; é esperado, é assim que qualquer APK fora
+da loja se instala.
+
+O gatilho é manual de propósito — não dispara sozinho a cada receita nova, porque um build
+Android gasta minutos de Actions e a maioria dos commits aqui é só um `.md` novo. Rode de novo
+sempre que quiser as receitas mais recentes no celular; o comentário no início do
+`.github/workflows/android-apk.yml` mostra como trocar para automático, se preferir.
+
+Os builds usam uma chave de debug fixa (`mobile/debug.keystore`, commitada de propósito —
+chave de debug não é segredo) para que instalar um APK novo por cima do antigo funcione sem
+precisar desinstalar primeiro.
+
+Para trocar nome do app, ícone ou o identificador do pacote, edite dentro de `mobile/`
+(`capacitor.config.json`, `mobile/android/app/src/main/res/mipmap-*`) — é um projeto Android
+normal, abre no Android Studio se quiser ir além do que o workflow cobre.
+
 ## Estrutura
 
 ```
@@ -134,4 +159,6 @@ receitas/*.md                 uma receita por arquivo
 scripts/build_index.py        lê receitas/ e gera dados/receitas.json
 dados/receitas.json           gerado — não edite à mão
 .github/workflows/pages.yml   regenera o índice e publica no Pages
+mobile/                       projeto Capacitor/Android — vira o APK
+.github/workflows/android-apk.yml   builda o APK sob demanda
 ```
