@@ -91,6 +91,12 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 const ARQUIVO_DADOS = "./dados/receitas.json";
 
+// Quantos cards a lista mostra de cada vez. Sem isso, um caderno com milhares
+// de receitas monta todo mundo no DOM de uma vez só na aba "Todas" — em
+// aparelho comum isso trava a página por vários segundos antes do primeiro
+// card aparecer. "Carregar mais" evita montar o que ninguém está vendo ainda.
+const TAM_PAGINA = 40;
+
 // Rótulos das categorias. Chave = valor do campo "categoria" no frontmatter.
 // Para criar uma categoria nova, basta usá-la num .md e adicionar aqui.
 const CATEGORIAS = {
@@ -905,6 +911,7 @@ function App() {
   const [colecao, setColecao] = useState("");
   const [categoria, setCategoria] = useState("");
   const [busca, setBusca] = useState("");
+  const [visiveis, setVisiveis] = useState(TAM_PAGINA);
   const [tema, setTema] = useState(() => {
     try { return document.documentElement.getAttribute("data-theme") || "light"; }
     catch (e) { return "light"; }
@@ -965,6 +972,13 @@ function App() {
     }
     return lista;
   }, [dados, aba, favoritos, colecao, categoria, buscaNorm]);
+
+  // Muda de aba, coleção, categoria ou busca -> volta pra primeira página.
+  // Sem isso, trocar de filtro com "visiveis" alto de uma busca anterior
+  // faria a próxima lista já entrar toda montada, do jeito que queríamos evitar.
+  useEffect(() => {
+    setVisiveis(TAM_PAGINA);
+  }, [aba, colecao, categoria, buscaNorm]);
 
   if (erro) {
     return (
@@ -1089,9 +1103,25 @@ python3 -m http.server 8000
           </div>
         ) : (
           <div>
-            {filtradas.map((r) => (
+            {filtradas.slice(0, visiveis).map((r) => (
               <Card key={r.id} r={r} isFav={favoritos.has(r.id)} onToggleFav={alternarFav} />
             ))}
+            {filtradas.length > visiveis && (
+              <div style={{ textAlign: "center", padding: "24px 0" }}>
+                <button
+                  onClick={() => setVisiveis((v) => v + TAM_PAGINA)}
+                  style={{
+                    fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 11.5,
+                    letterSpacing: "0.06em", textTransform: "uppercase", padding: "10px 20px",
+                    cursor: "pointer", border: "1.5px solid var(--color-divider)",
+                    background: "none", color: "var(--color-neutral-700)",
+                  }}
+                >
+                  Carregar mais {Math.min(TAM_PAGINA, filtradas.length - visiveis)}
+                  {" · faltam "}{filtradas.length - visiveis}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
