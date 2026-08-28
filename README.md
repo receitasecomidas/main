@@ -64,7 +64,7 @@ O que deu certo, o que ajustar da próxima vez.
 | `rendimento`, `tempo`, `dificuldade` | não | Aparecem na faixa de metadados |
 | `idioma` | não | Use `en` se o conteúdo não estiver em português |
 | `tags` | não | Lista: `[a, b, c]` |
-| `testada` | não | `true` marca "Já fiz" e entra na aba correspondente |
+| `testada` | não | `true` marca "Já fiz" e entra na aba correspondente. Também dá pra marcar/desmarcar direto no app, tocando na etiqueta na página da receita — mas isso fica só no navegador de quem tocou (ver abaixo) |
 
 Só `titulo` é obrigatório — todo o resto é opcional.
 
@@ -101,6 +101,25 @@ frações que se medem numa cozinha — ½ ⅓ ⅔ ¼ ¾ — e a partir de 10 pa
 
 Como escala o número e não a palavra, a concordância pode ficar torta (`2 pedaço`). Preferi
 isso a errar quantidade.
+
+## Favoritos, "já fiz" e anotações — ficam só no seu navegador
+
+O site não tem backend: publicado no GitHub Pages, não tem como um clique salvar nada de
+volta no repositório. Três coisas usam `localStorage` do navegador em vez disso:
+
+- **Favoritos** — o coração no card e na receita.
+- **Já fiz** — a etiqueta na página da receita agora é um botão; tocar marca ou desmarca,
+  sobrepondo o `testada` do `.md` só ali. O `.md` continua sendo o padrão de quem nunca tocou.
+- **Anotações** — campo de texto livre no fim da receita, salvo sozinho (com um pequeno atraso
+  enquanto você digita, pra não gravar a cada letra).
+
+As três valem **por aparelho e por navegador** — não sincronizam entre celular e computador, e
+somem se limpar os dados do site. Para uma nota ou marcação que todo mundo vê, e que sobrevive
+a isso, edite o `.md` da receita no GitHub: `testada: true` no cabeçalho, ou uma seção
+`## Minhas notas` no corpo.
+
+O botão de WhatsApp manda a receita inteira — ingredientes e modo de preparo, já escalados se
+você tiver ajustado a quantidade — não só o link.
 
 ## Rodar localmente
 

@@ -308,6 +308,45 @@ function hrefDe(destino) {
   return /^(https?:|mailto:|#)/.test(destino) ? destino : "#/receita/" + destino;
 }
 
+// ---------------------------------------------------------------------------
+// Versão em texto puro do corpo da receita — usada só para o compartilhar no
+// WhatsApp. Reaproveita o mesmo parseMarkdown/escalaLinha da tela, então o
+// texto enviado bate com o que está na tela (inclusive escalado).
+// ---------------------------------------------------------------------------
+
+function textoPuro(texto) {
+  return String(texto)
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, rotulo, alvo) =>
+      /^https?:/.test(alvo) ? `${rotulo} (${alvo})` : rotulo
+    );
+}
+
+function corpoParaTexto(corpo, fator) {
+  const blocos = parseMarkdown(corpo);
+  let emIngredientes = false;
+  const partes = [];
+  for (const b of blocos) {
+    if (b.tipo === "titulo") {
+      if (b.nivel === 2) emIngredientes = semAcento(b.texto).startsWith("ingrediente");
+      partes.push(b.nivel === 2 ? b.texto.toUpperCase() : b.texto + ":");
+    } else if (b.tipo === "lista") {
+      partes.push(b.itens.map((item) => {
+        const escalado = emIngredientes && fator !== 1 ? escalaLinha(item, fator) : null;
+        const linha = escalado ? escalado.espaco + escalado.quantidade + escalado.depois : item;
+        return "• " + textoPuro(linha);
+      }).join("\n"));
+    } else if (b.tipo === "passos") {
+      partes.push(b.itens.map((item, i) => `${i + 1}. ${textoPuro(item)}`).join("\n"));
+    } else {
+      partes.push(textoPuro(b.texto));
+    }
+  }
+  return partes.join("\n\n");
+}
+
 function Inline({ texto }) {
   const nos = [];
   const re = /\*\*([^*]+)\*\*|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`/g;
@@ -348,18 +387,21 @@ function Tag({ categoria }) {
   );
 }
 
-function Etiqueta({ children, tom }) {
+function Etiqueta({ children, tom, onClick }) {
   const fundo = tom === "accent" ? "var(--color-accent)" : "none";
-  return (
-    <span style={{
-      fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10.5,
-      letterSpacing: "0.06em", textTransform: "uppercase", padding: "2px 7px",
-      background: fundo, color: tom === "accent" ? "#fff" : "var(--color-neutral-700)",
-      border: tom === "accent" ? "none" : "1px solid var(--color-divider)",
-    }}>
-      {children}
-    </span>
-  );
+  const style = {
+    fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10.5,
+    letterSpacing: "0.06em", textTransform: "uppercase", padding: "2px 7px",
+    background: fundo, color: tom === "accent" ? "#fff" : "var(--color-neutral-700)",
+    border: tom === "accent" ? "none" : "1px solid var(--color-divider)",
+  };
+  // Com onClick vira botão (ex: alternar "já fiz"); sem, continua etiqueta
+  // só de leitura (ex: categoria, EN). Ganha um pouco mais de altura de toque
+  // que a etiqueta passiva — texto e cor batem, só o alvo fica mais fácil.
+  if (onClick) {
+    return <button onClick={onClick} style={{ ...style, padding: "6px 9px", cursor: "pointer" }}>{children}</button>;
+  }
+  return <span style={style}>{children}</span>;
 }
 
 function SunIcon() {
@@ -418,7 +460,7 @@ function IconButton({ label, onClick, href, active, children }) {
 
 // ---------------------------------------------------------------------------
 
-function Card({ r, isFav, onToggleFav }) {
+function Card({ r, isFav, onToggleFav, testada }) {
   const meta = [r.colecao, r.rendimento, r.tempo].filter(Boolean);
   return (
     <div style={{
@@ -428,7 +470,7 @@ function Card({ r, isFav, onToggleFav }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
           <Tag categoria={r.categoria} />
-          {r.testada && <Etiqueta tom="accent">Já fiz</Etiqueta>}
+          {testada && <Etiqueta tom="accent">Já fiz</Etiqueta>}
           {r.idioma === "en" && <Etiqueta>EN</Etiqueta>}
         </div>
         <h3 style={{ margin: "0 0 4px", fontFamily: "var(--font-heading)", fontWeight: 800, textTransform: "uppercase", fontSize: 19, lineHeight: 1.15, overflowWrap: "anywhere" }}>
@@ -641,18 +683,67 @@ function Escala({ fator, setFator }) {
   );
 }
 
-function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
+// Salva a nota local imediatamente (sem debounce) — usado tanto pelo timer
+// quanto para não perder a última letra digitada ao trocar de receita.
+function salvarNotaAgora(id, texto) {
+  try {
+    const raw = localStorage.getItem("receitas:notas");
+    const todas = raw ? JSON.parse(raw) : {};
+    if (texto && texto.trim()) todas[id] = texto;
+    else delete todas[id]; // nota vazia não ocupa espaço no localStorage
+    localStorage.setItem("receitas:notas", JSON.stringify(todas));
+  } catch (e) {
+    console.error("Não foi possível salvar a nota agora.", e);
+  }
+}
+
+function Detalhe({ r, isFav, onToggleFav, testada, onToggleTestada, onVoltar }) {
   const [marcados, setMarcados] = useState(new Set());
   const [cozinha, setCozinha] = useState(false);
   const [fator, setFator] = useState(1);
+  const [nota, setNota] = useState("");
+  const [notaSalva, setNotaSalva] = useState(true);
   const wakeLock = useRef(null);
+  const notaRef = useRef("");
+  const timerNota = useRef(null);
 
   useEffect(() => {
+    const idAnterior = r.id;
     setMarcados(new Set());
     setCozinha(false);
     setFator(1);
     window.scrollTo(0, 0);
+
+    let notaCarregada = "";
+    try {
+      const raw = localStorage.getItem("receitas:notas");
+      notaCarregada = (raw ? JSON.parse(raw) : {})[r.id] || "";
+    } catch (e) {
+      // sem nota salva ainda
+    }
+    setNota(notaCarregada);
+    notaRef.current = notaCarregada;
+    setNotaSalva(true);
+
+    // Troca de receita (ou sai da página): se tinha uma letra digitada que o
+    // debounce ainda não salvou, salva agora — sob o id de quem estava
+    // aberto até aqui, não o da receita nova.
+    return () => {
+      clearTimeout(timerNota.current);
+      salvarNotaAgora(idAnterior, notaRef.current);
+    };
   }, [r.id]);
+
+  const aoDigitarNota = (texto) => {
+    setNota(texto);
+    notaRef.current = texto;
+    setNotaSalva(false);
+    clearTimeout(timerNota.current);
+    timerNota.current = setTimeout(() => {
+      salvarNotaAgora(r.id, texto);
+      setNotaSalva(true);
+    }, 600);
+  };
 
   // Modo cozinha: aumenta tudo e tenta segurar a tela acesa. O Wake Lock não
   // existe em todo navegador — se não existir, o resto do modo funciona igual.
@@ -695,7 +786,21 @@ function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
     r.colecao && ["Coleção", r.colecao],
   ].filter(Boolean);
 
-  const textoZap = `Receita: ${r.titulo}${r.fonte ? " (" + r.fonte + ")" : ""}\n${location.href}`;
+  const textoZap = useMemo(() => {
+    const linhas = [r.titulo];
+    const legenda = [r.titulo_original, r.subtitulo].filter(Boolean).join(" — ");
+    if (legenda) linhas.push(legenda);
+
+    const metaZap = [];
+    if (r.rendimento) metaZap.push("Rende: " + escalaRendimento(r.rendimento, fator));
+    if (r.tempo) metaZap.push("Tempo: " + r.tempo);
+    if (metaZap.length) linhas.push(metaZap.join(" · "));
+
+    linhas.push("", corpoParaTexto(r.corpo, fator), "");
+    linhas.push("Fonte: " + (r.fonte || "receita própria"));
+    linhas.push(location.href);
+    return linhas.join("\n");
+  }, [r, fator]);
 
   return (
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "0 20px 60px" }}>
@@ -726,7 +831,9 @@ function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 12px" }}>
         <Tag categoria={r.categoria} />
-        {r.testada && <Etiqueta tom="accent">Já fiz</Etiqueta>}
+        <Etiqueta tom={testada ? "accent" : undefined} onClick={onToggleTestada}>
+          {testada ? "✓ Já fiz" : "Marcar já fiz"}
+        </Etiqueta>
         {r.idioma === "en" && <Etiqueta>Original em inglês</Etiqueta>}
       </div>
 
@@ -785,6 +892,37 @@ function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
 
       <div style={{ marginTop: 8 }}>
         <CorpoReceita corpo={r.corpo} marcados={marcados} alternarMarcado={alternarMarcado} fator={fator} />
+      </div>
+
+      <div style={{ marginTop: 28 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+          <h2 style={{
+            fontFamily: "var(--font-heading)", fontWeight: 800, textTransform: "uppercase",
+            fontSize: 15, letterSpacing: "0.06em", margin: 0,
+          }}>
+            Minhas anotações
+          </h2>
+          <span style={{ fontSize: 11, color: "var(--color-neutral-400)", flexShrink: 0 }}>
+            {!notaSalva ? "Salvando…" : nota ? "Salvo neste aparelho" : ""}
+          </span>
+        </div>
+        <textarea
+          value={nota}
+          onChange={(e) => aoDigitarNota(e.target.value)}
+          placeholder="O que você mudou, quanto tempo levou, o que ajustar da próxima vez…"
+          rows={4}
+          style={{
+            width: "100%", boxSizing: "border-box", fontFamily: "var(--font-body)",
+            fontSize: 16, lineHeight: 1.5, padding: "10px 12px",
+            border: "1.5px solid var(--color-divider)", background: "var(--color-bg)",
+            color: "var(--color-text)", resize: "vertical",
+          }}
+        />
+        <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--color-neutral-400)" }}>
+          Fica só neste navegador — não é salva no repositório nem aparece em outro
+          aparelho. Para uma nota que todo mundo vê, edite a receita no GitHub e
+          acrescente uma seção "## Minhas notas".
+        </p>
       </div>
 
       <div style={{ borderTop: "2px solid var(--color-divider)", marginTop: 32, paddingTop: 14 }}>
@@ -907,6 +1045,10 @@ function App() {
   const [rota, setRota] = useState(rotaAtual);
 
   const [favoritos, setFavoritos] = useState(new Set());
+  // { [id]: true | false }. Sobrepõe o "testada" do .md só neste navegador —
+  // sem isso não tem como marcar/desmarcar "já fiz" batendo o olho na receita,
+  // já que o site não tem como escrever de volta no arquivo .md do GitHub.
+  const [testadasLocais, setTestadasLocais] = useState({});
   const [aba, setAba] = useState("todas");
   const [colecao, setColecao] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -940,6 +1082,12 @@ function App() {
     } catch (e) {
       // sem favoritos salvos ainda
     }
+    try {
+      const raw = localStorage.getItem("receitas:testadas");
+      if (raw) setTestadasLocais(JSON.parse(raw));
+    } catch (e) {
+      // sem marcações locais ainda
+    }
   }, []);
 
   useEffect(() => {
@@ -957,12 +1105,30 @@ function App() {
     });
   }, []);
 
+  // testada: true/false marcado no .md é o padrão; um toque em "já fiz" no
+  // app grava a exceção aqui e ela manda, em qualquer direção (marca OU
+  // desmarca), até o navegador ser trocado ou o localStorage, limpo.
+  const efetivaTestada = useCallback(
+    (r) => (testadasLocais[r.id] !== undefined ? testadasLocais[r.id] : r.testada),
+    [testadasLocais]
+  );
+
+  const alternarTestada = useCallback((r) => {
+    setTestadasLocais((atual) => {
+      const atualEfetiva = atual[r.id] !== undefined ? atual[r.id] : r.testada;
+      const prox = { ...atual, [r.id]: !atualEfetiva };
+      try { localStorage.setItem("receitas:testadas", JSON.stringify(prox)); }
+      catch (e) { console.error("Não foi possível salvar 'já fiz' agora.", e); }
+      return prox;
+    });
+  }, []);
+
   const buscaNorm = useMemo(() => semAcento(busca.trim()), [busca]);
 
   const filtradas = useMemo(() => {
     if (!dados) return [];
     let lista = dados.receitas;
-    if (aba === "testadas") lista = lista.filter((r) => r.testada);
+    if (aba === "testadas") lista = lista.filter((r) => efetivaTestada(r));
     if (aba === "favoritas") lista = lista.filter((r) => favoritos.has(r.id));
     if (colecao) lista = lista.filter((r) => r.colecao === colecao);
     if (categoria) lista = lista.filter((r) => r.categoria === categoria);
@@ -971,7 +1137,7 @@ function App() {
       lista = lista.filter((r) => termos.every((t) => r.busca.includes(t)));
     }
     return lista;
-  }, [dados, aba, favoritos, colecao, categoria, buscaNorm]);
+  }, [dados, aba, favoritos, colecao, categoria, buscaNorm, efetivaTestada]);
 
   // Muda de aba, coleção, categoria ou busca -> volta pra primeira página.
   // Sem isso, trocar de filtro com "visiveis" alto de uma busca anterior
@@ -1011,6 +1177,8 @@ python3 -m http.server 8000
             r={r}
             isFav={favoritos.has(r.id)}
             onToggleFav={alternarFav}
+            testada={efetivaTestada(r)}
+            onToggleTestada={() => alternarTestada(r)}
             onVoltar={() => { location.hash = ""; }}
           />
           <Rodape dados={dados} />
@@ -1097,14 +1265,14 @@ python3 -m http.server 8000
               {aba === "favoritas"
                 ? "Você ainda não salvou nenhuma receita. Toque no coração para salvar."
                 : aba === "testadas"
-                ? "Nenhuma receita marcada como feita ainda. Marque com testada: true no arquivo .md."
+                ? "Nenhuma receita marcada como feita ainda. Abra uma receita e toque em “Marcar já fiz”."
                 : "Nenhuma receita encontrada com esses filtros."}
             </p>
           </div>
         ) : (
           <div>
             {filtradas.slice(0, visiveis).map((r) => (
-              <Card key={r.id} r={r} isFav={favoritos.has(r.id)} onToggleFav={alternarFav} />
+              <Card key={r.id} r={r} isFav={favoritos.has(r.id)} onToggleFav={alternarFav} testada={efetivaTestada(r)} />
             ))}
             {filtradas.length > visiveis && (
               <div style={{ textAlign: "center", padding: "24px 0" }}>
