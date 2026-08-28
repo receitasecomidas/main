@@ -76,6 +76,32 @@ Link com o nome do arquivo (sem `.md`) vira link interno:
 Usa o [molho para teriyaki](washoku-molho-teriyaki).
 ```
 
+## Calculadora de quantidades
+
+Cada receita tem um seletor **½ receita / 1 receita / 2 receitas**, mais um campo livre para
+qualquer multiplicador (`1,5`, `3`, `0,25`). As quantidades recalculadas aparecem em destaque,
+e o rendimento acompanha.
+
+A regra é escalar **só a quantidade que abre cada linha de ingrediente**, que é como as receitas
+são escritas: `500 ml de água`, `99 g bread flour`. Isso é proposital — em
+`1 pedaço de alga kombu de uns 5 cm`, dobrar a receita dobra o número de pedaços, não o tamanho
+de cada um.
+
+Por consequência, dois lugares **não** são recalculados:
+
+- números no meio da linha, inclusive entre parênteses;
+- o modo de preparo, porque tempo e temperatura não escalam junto com a quantidade.
+
+O seletor avisa isso na tela quando o fator é diferente de 1.
+
+A calculadora entende inteiro (`500`), decimal com ponto ou vírgula (`1.2`, `1,5`), fração
+(`1/2`), fração unicode (`½`), mista (`1 ½`) e faixa (`2 a 3`, `3-4`). Na saída, só usa as
+frações que se medem numa cozinha — ½ ⅓ ⅔ ¼ ¾ — e a partir de 10 passa a decimal, porque
+`49,5 g` se pesa e `49½ g` não.
+
+Como escala o número e não a palavra, a concordância pode ficar torta (`2 pedaço`). Preferi
+isso a errar quantidade.
+
 ## Rodar localmente
 
 ```bash

@@ -124,6 +124,109 @@ function semAcento(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Calculadora de quantidades.
+//
+// A regra é escalar SÓ a quantidade que abre a linha do ingrediente — é assim
+// que as receitas são escritas ("500 ml de água", "99 g bread flour"). Números
+// que aparecem depois são medida de outra natureza ("kombu de uns 5 cm",
+// "ash above .5") e ficam intactos de propósito: dobrar a receita não dobra o
+// tamanho do pedaço de alga.
+// ---------------------------------------------------------------------------
+
+const FRACOES = {
+  "½": 1 / 2, "⅓": 1 / 3, "⅔": 2 / 3, "¼": 1 / 4, "¾": 3 / 4,
+  "⅕": 1 / 5, "⅖": 2 / 5, "⅗": 3 / 5, "⅘": 4 / 5,
+  "⅙": 1 / 6, "⅚": 5 / 6, "⅛": 1 / 8, "⅜": 3 / 8, "⅝": 5 / 8, "⅞": 7 / 8,
+};
+const GLIFOS = Object.keys(FRACOES).join("");
+// Toda fração acima é reconhecida na LEITURA da receita. Mas na hora de
+// escrever o resultado só saem as que alguém mede numa cozinha: ⅖ de grama
+// não existe, 2,4 g existe.
+const FRACOES_SAIDA = ["½", "⅓", "⅔", "¼", "¾"];
+
+// Um "número" é: misto (1 1/2 ou 1½), fração (1/2), fração unicode (½)
+// ou decimal com ponto ou vírgula (250, 1.2, 1,5). Ordem importa: o mais
+// comprido primeiro, senão "1 1/2" casa só o "1".
+const NUM = "(?:\\d+\\s+\\d+\\s*/\\s*\\d+" +
+            "|\\d+\\s*[" + GLIFOS + "]" +
+            "|\\d+\\s*/\\s*\\d+" +
+            "|[" + GLIFOS + "]" +
+            "|\\d+(?:[.,]\\d+)?)";
+
+const RE_ABRE = new RegExp("^(\\s*)(" + NUM + ")");
+// "2 a 3 colheres", "3-4 dentes". O \b evita casar o "a" de "1 abobrinha".
+const RE_FAIXA = new RegExp("^(\\s*(?:a|à|até|to|-|–|—)\\s*)(" + NUM + ")", "i");
+
+function valorNumerico(txt) {
+  const t = String(txt).trim();
+  let total = 0;
+  let resto = t;
+
+  const misto = t.match(new RegExp("^(\\d+)\\s+(\\d+\\s*/\\s*\\d+)$"));
+  if (misto) return parseInt(misto[1], 10) + valorNumerico(misto[2]);
+
+  const mistoUni = t.match(new RegExp("^(\\d+)\\s*([" + GLIFOS + "])$"));
+  if (mistoUni) return parseInt(mistoUni[1], 10) + FRACOES[mistoUni[2]];
+
+  if (FRACOES[t] !== undefined) return FRACOES[t];
+
+  const fracao = t.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fracao) {
+    const baixo = parseInt(fracao[2], 10);
+    return baixo ? parseInt(fracao[1], 10) / baixo : 0;
+  }
+
+  total = parseFloat(resto.replace(",", "."));
+  return isNaN(total) ? 0 : total;
+}
+
+// Fração fica bonita em quantidade pequena de colher e xícara ("1½ colher"),
+// mas não em grama: 49½ g não se mede, 49,5 g sim. O corte é em 10.
+function formataNumero(v) {
+  if (!isFinite(v) || v <= 0) return "0";
+
+  if (v < 10) {
+    const inteiro = Math.floor(v + 1e-9);
+    const resto = v - inteiro;
+    if (resto < 0.005) return String(inteiro);
+    for (const glifo of FRACOES_SAIDA) {
+      if (Math.abs(resto - FRACOES[glifo]) < 0.008) {
+        return (inteiro > 0 ? String(inteiro) : "") + glifo;
+      }
+    }
+    return String(Math.round(v * 100) / 100).replace(".", ",");
+  }
+
+  const arred = Math.round(v * 10) / 10;
+  return String(arred).replace(".", ",");
+}
+
+// Devolve as partes da linha já escalada, para o componente conseguir
+// destacar em cor só o pedaço que mudou. null = linha sem quantidade.
+function escalaLinha(linha, fator) {
+  const abre = linha.match(RE_ABRE);
+  if (!abre) return null;
+
+  let quantidade = formataNumero(valorNumerico(abre[2]) * fator);
+  let consumido = abre[0].length;
+
+  const faixa = linha.slice(consumido).match(RE_FAIXA);
+  if (faixa) {
+    quantidade += faixa[1] + formataNumero(valorNumerico(faixa[2]) * fator);
+    consumido += faixa[0].length;
+  }
+
+  return { espaco: abre[1], quantidade, depois: linha.slice(consumido) };
+}
+
+// Mesma conta para o rendimento ("4 porções" a 2x vira "8 porções").
+function escalaRendimento(texto, fator) {
+  if (!texto || fator === 1) return texto;
+  const partes = escalaLinha(texto, fator);
+  return partes ? partes.espaco + partes.quantidade + partes.depois : texto;
+}
+
+// ---------------------------------------------------------------------------
 // Markdown — só o subconjunto que as receitas usam: ## e ###, listas com "-",
 // passos numerados, parágrafos, **negrito**, *itálico* e links.
 // ---------------------------------------------------------------------------
@@ -330,7 +433,7 @@ function Card({ r, isFav, onToggleFav }) {
 
 // ---------------------------------------------------------------------------
 
-function CorpoReceita({ corpo, marcados, alternarMarcado }) {
+function CorpoReceita({ corpo, marcados, alternarMarcado, fator }) {
   const blocos = useMemo(() => parseMarkdown(corpo), [corpo]);
   // Só a lista que estiver embaixo de um título "Ingredientes" vira checklist.
   let emIngredientes = false;
@@ -363,6 +466,9 @@ function CorpoReceita({ corpo, marcados, alternarMarcado }) {
               {b.itens.map((item, j) => {
                 const chave = i + ":" + j;
                 const marcado = checklist && marcados.has(chave);
+                // Só ingrediente é reescalado. Passo de preparo não: "cozinhe
+                // por 15 minutos" continua 15 minutos em qualquer quantidade.
+                const escalado = checklist && fator !== 1 ? escalaLinha(item, fator) : null;
                 return (
                   <li
                     key={j}
@@ -383,7 +489,16 @@ function CorpoReceita({ corpo, marcados, alternarMarcado }) {
                       borderRadius: checklist ? 2 : "50%",
                       transform: checklist ? "none" : "scale(0.45)",
                     }} />
-                    <span><Inline texto={item} /></span>
+                    <span>
+                      {escalado ? (
+                        <>
+                          <strong style={{ color: "var(--color-accent)" }}>{escalado.quantidade}</strong>
+                          <Inline texto={escalado.depois} />
+                        </>
+                      ) : (
+                        <Inline texto={item} />
+                      )}
+                    </span>
                   </li>
                 );
               })}
@@ -417,14 +532,91 @@ function CorpoReceita({ corpo, marcados, alternarMarcado }) {
   );
 }
 
+const PRESETS = [
+  { fator: 0.5, label: "½ receita" },
+  { fator: 1, label: "1 receita" },
+  { fator: 2, label: "2 receitas" },
+];
+
+function Escala({ fator, setFator }) {
+  const [livre, setLivre] = useState("");
+  const ehPreset = PRESETS.some((p) => p.fator === fator);
+
+  const aplicarLivre = (texto) => {
+    setLivre(texto);
+    const v = parseFloat(texto.replace(",", "."));
+    if (isFinite(v) && v > 0 && v <= 100) setFator(v);
+  };
+
+  return (
+    <div style={{ borderBottom: "2px solid var(--color-divider)", padding: "14px 0" }}>
+      <div style={{
+        fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10,
+        letterSpacing: "0.08em", textTransform: "uppercase",
+        color: "var(--color-neutral-400)", marginBottom: 8,
+      }}>
+        Quanto você vai fazer
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {PRESETS.map((p) => {
+          const ativo = fator === p.fator;
+          return (
+            <button
+              key={p.fator}
+              onClick={() => { setFator(p.fator); setLivre(""); }}
+              style={{
+                fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 11,
+                letterSpacing: "0.05em", textTransform: "uppercase",
+                padding: "8px 14px", cursor: "pointer",
+                border: "1.5px solid " + (ativo ? "var(--color-accent)" : "var(--color-divider)"),
+                background: ativo ? "var(--color-accent)" : "none",
+                color: ativo ? "#fff" : "var(--color-neutral-700)",
+              }}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-neutral-700)" }}>
+          <span>ou</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={livre}
+            onChange={(e) => aplicarLivre(e.target.value)}
+            placeholder="1,5"
+            aria-label="Multiplicador personalizado"
+            style={{
+              width: 58, fontSize: 13, padding: "6px 8px", textAlign: "right",
+              border: "1.5px solid " + (!ehPreset ? "var(--color-accent)" : "var(--color-divider)"),
+              background: "var(--color-bg)", color: "var(--color-text)",
+            }}
+          />
+          <span>×</span>
+        </label>
+      </div>
+      {fator !== 1 && (
+        <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--color-neutral-700)" }}>
+          Multipliquei por {formataNumero(fator)} a quantidade que abre cada ingrediente — é o que
+          está em <strong style={{ color: "var(--color-accent)" }}>destaque</strong>. Números no meio
+          da linha (entre parênteses, por exemplo) e no modo de preparo ficam como estão: tempo e
+          temperatura não mudam com a quantidade. Confira as medidas que aparecem repetidas.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
   const [marcados, setMarcados] = useState(new Set());
   const [cozinha, setCozinha] = useState(false);
+  const [fator, setFator] = useState(1);
   const wakeLock = useRef(null);
 
   useEffect(() => {
     setMarcados(new Set());
     setCozinha(false);
+    setFator(1);
     window.scrollTo(0, 0);
   }, [r.id]);
 
@@ -463,7 +655,7 @@ function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
   }, []);
 
   const meta = [
-    r.rendimento && ["Rende", r.rendimento],
+    r.rendimento && ["Rende", escalaRendimento(r.rendimento, fator), fator !== 1 ? r.rendimento : null],
     r.tempo && ["Tempo", r.tempo],
     r.dificuldade && ["Dificuldade", r.dificuldade],
     r.colecao && ["Coleção", r.colecao],
@@ -520,16 +712,21 @@ function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
           borderTop: "2px solid var(--color-divider)", borderBottom: "2px solid var(--color-divider)",
           margin: "20px 0 0", padding: "12px 0",
         }}>
-          {meta.map(([rotulo, valor]) => (
+          {meta.map(([rotulo, valor, original]) => (
             <div key={rotulo} style={{ padding: "4px 0" }}>
               <div style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-neutral-400)" }}>
                 {rotulo}
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{valor}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: original ? "var(--color-accent)" : "inherit" }}>{valor}</div>
+              {original && (
+                <div style={{ fontSize: 11, color: "var(--color-neutral-400)" }}>receita inteira: {original}</div>
+              )}
             </div>
           ))}
         </div>
       )}
+
+      <Escala fator={fator} setFator={setFator} />
 
       <div style={{ margin: "16px 0 0" }}>
         <button
@@ -553,7 +750,7 @@ function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
       </div>
 
       <div style={{ marginTop: 8 }}>
-        <CorpoReceita corpo={r.corpo} marcados={marcados} alternarMarcado={alternarMarcado} />
+        <CorpoReceita corpo={r.corpo} marcados={marcados} alternarMarcado={alternarMarcado} fator={fator} />
       </div>
 
       <div style={{ borderTop: "2px solid var(--color-divider)", marginTop: 32, paddingTop: 14 }}>
