@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Receitas e Comidas</title>
+<meta name="description" content="Caderno de receitas: as minhas e as que uso de outras fontes, sempre creditadas.">
+<meta name="theme-color" content="#201e1d">
+<script>
+  // Aplica o tema salvo (ou o do sistema) antes do primeiro paint, evitando flash.
+  (function () {
+    try {
+      var stored = localStorage.getItem("receitas:tema");
+      var theme = stored || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    } catch (e) {}
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js" crossorigin></script>
+<style>
+  :root {
+    --color-bg: #f3f2f2;
+    --color-surface: #eae9e9;
+    --color-text: #201e1d;
+    --color-divider: rgba(32, 30, 29, 0.4);
+    --color-hairline: rgba(32, 30, 29, 0.14);
+    --color-neutral-200: #eae7e7;
+    --color-neutral-400: #bab6b6;
+    --color-neutral-700: #605d5d;
+    --color-neutral-800: #444141;
+    --color-neutral-900: #201e1d;
+    --color-accent-700: #ae1800;
+
+    --color-accent: #ec3013;
+
+    /* Identidade do header — sempre grafite/claro, não muda com o tema */
+    --color-header-bg: #201e1d;
+    --color-header-text: #f3f2f2;
+    --color-header-divider: #f3f2f2;
+    --color-header-subtle: #eae7e7;
+    --color-header-muted: #bab6b6;
+    --color-header-accent: #ff9783;
+
+    /* Etiquetas — fixas nos dois temas, para reconhecimento visual constante */
+    --tag-neutral-bg: #eae7e7;
+    --tag-neutral-fg: #444141;
+    --tag-dark-bg: #444141;
+    --tag-dark-fg: #f3f2f2;
+    --tag-accent-bg: #fff2ef;
+    --tag-accent-fg: #ae1800;
+
+    --font-heading: 'Archivo', system-ui, sans-serif;
+    --font-body: 'Archivo', system-ui, sans-serif;
+  }
+  :root[data-theme="dark"] {
+    --color-bg: #171514;
+    --color-surface: #221f1e;
+    --color-text: #f3f2f2;
+    --color-divider: rgba(243, 242, 242, 0.18);
+    --color-hairline: rgba(243, 242, 242, 0.12);
+    --color-neutral-200: #2c2927;
+    --color-neutral-400: #7a7674;
+    --color-neutral-700: #b8b4b3;
+    --color-neutral-800: #e6e3e2;
+    --color-neutral-900: #f3f2f2;
+    --color-accent-700: #ff8266;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+  h1, h2, h3 { font-family: var(--font-heading); font-weight: 800; margin: 0; }
+  a { color: var(--color-accent-700); }
+  button { font-family: inherit; }
+  input, select { font-family: inherit; }
+  ::selection { background: var(--color-accent); color: #fff; }
+
+  /* Modo cozinha: tudo maior, para ler de longe com a mão suja. */
+  body[data-cozinha="1"] { font-size: 19px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<noscript><p style="padding:24px">Este site precisa de JavaScript para montar a lista de receitas.</p></noscript>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+const ARQUIVO_DADOS = "./dados/receitas.json";
+
+// Rótulos das categorias. Chave = valor do campo "categoria" no frontmatter.
+// Para criar uma categoria nova, basta usá-la num .md e adicionar aqui.
+const CATEGORIAS = {
+  base:              { label: "Base",            estilo: "accent" },
+  caldo:             { label: "Caldo",           estilo: "neutral" },
+  molho:             { label: "Molho",           estilo: "neutral" },
+  tare:              { label: "Tare",            estilo: "dark" },
+  massa:             { label: "Massa",           estilo: "dark" },
+  topping:           { label: "Cobertura",       estilo: "neutral" },
+  oleo:              { label: "Óleo aromático",  estilo: "neutral" },
+  "prato principal": { label: "Prato principal", estilo: "dark" },
+  acompanhamento:    { label: "Acompanhamento",  estilo: "neutral" },
+  entrada:           { label: "Entrada",         estilo: "neutral" },
+  "preparo de peixe":{ label: "Preparo de peixe",estilo: "accent" },
+  sobremesa:         { label: "Sobremesa",       estilo: "accent" },
+  pao:               { label: "Pão",             estilo: "dark" },
+};
+
+const ESTILO_TAG = {
+  neutral: { bg: "var(--tag-neutral-bg)", fg: "var(--tag-neutral-fg)" },
+  dark:    { bg: "var(--tag-dark-bg)",    fg: "var(--tag-dark-fg)" },
+  accent:  { bg: "var(--tag-accent-bg)",  fg: "var(--tag-accent-fg)" },
+};
+
+function categoriaDe(chave) {
+  return CATEGORIAS[chave] || { label: chave || "Sem categoria", estilo: "neutral" };
+}
+
+function semAcento(s) {
+  return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+// ---------------------------------------------------------------------------
+// Markdown — só o subconjunto que as receitas usam: ## e ###, listas com "-",
+// passos numerados, parágrafos, **negrito**, *itálico* e links.
+// ---------------------------------------------------------------------------
+
+function parseMarkdown(md) {
+  const linhas = (md || "").split("\n");
+  const blocos = [];
+  const ehEstrutura = (l) => /^(#{2,4}\s|[-*]\s|\d+\.\s)/.test(l);
+  let i = 0;
+  while (i < linhas.length) {
+    const l = linhas[i];
+    if (!l.trim()) { i++; continue; }
+    let m;
+    if ((m = l.match(/^(#{2,4})\s+(.*)$/))) {
+      blocos.push({ tipo: "titulo", nivel: m[1].length, texto: m[2].trim() });
+      i++;
+    } else if (/^[-*]\s+/.test(l)) {
+      const itens = [];
+      while (i < linhas.length && /^[-*]\s+/.test(linhas[i])) {
+        itens.push(linhas[i].replace(/^[-*]\s+/, "").trim());
+        i++;
+      }
+      blocos.push({ tipo: "lista", itens });
+    } else if (/^\d+\.\s+/.test(l)) {
+      const itens = [];
+      while (i < linhas.length && /^\d+\.\s+/.test(linhas[i])) {
+        itens.push(linhas[i].replace(/^\d+\.\s+/, "").trim());
+        i++;
+      }
+      blocos.push({ tipo: "passos", itens });
+    } else {
+      const partes = [];
+      while (i < linhas.length && linhas[i].trim() && !ehEstrutura(linhas[i])) {
+        partes.push(linhas[i].trim());
+        i++;
+      }
+      blocos.push({ tipo: "paragrafo", texto: partes.join(" ") });
+    }
+  }
+  return blocos;
+}
+
+// Link sem "http" aponta para outra receita (ex: [ponzu](washoku-ponzu)).
+function hrefDe(destino) {
+  return /^(https?:|mailto:|#)/.test(destino) ? destino : "#/receita/" + destino;
+}
+
+function Inline({ texto }) {
+  const nos = [];
+  const re = /\*\*([^*]+)\*\*|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`/g;
+  let ultimo = 0, m, k = 0;
+  while ((m = re.exec(texto)) !== null) {
+    if (m.index > ultimo) nos.push(texto.slice(ultimo, m.index));
+    if (m[1]) nos.push(<strong key={k++}>{m[1]}</strong>);
+    else if (m[2]) nos.push(<em key={k++}>{m[2]}</em>);
+    else if (m[3]) {
+      const externo = /^https?:/.test(m[4]);
+      nos.push(
+        <a key={k++} href={hrefDe(m[4])} {...(externo ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+          {m[3]}{externo ? " ↗" : ""}
+        </a>
+      );
+    } else if (m[5]) {
+      nos.push(<code key={k++} style={{ background: "var(--color-neutral-200)", padding: "1px 4px" }}>{m[5]}</code>);
+    }
+    ultimo = m.index + m[0].length;
+  }
+  if (ultimo < texto.length) nos.push(texto.slice(ultimo));
+  return <>{nos}</>;
+}
+
+// ---------------------------------------------------------------------------
+
+function Tag({ categoria }) {
+  const c = categoriaDe(categoria);
+  const e = ESTILO_TAG[c.estilo];
+  return (
+    <span style={{
+      display: "inline-block", fontFamily: "var(--font-heading)", fontWeight: 700,
+      fontSize: "10.5px", letterSpacing: "0.06em", textTransform: "uppercase",
+      padding: "3px 8px", background: e.bg, color: e.fg,
+    }}>
+      {c.label}
+    </span>
+  );
+}
+
+function Etiqueta({ children, tom }) {
+  const fundo = tom === "accent" ? "var(--color-accent)" : "none";
+  return (
+    <span style={{
+      fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10.5,
+      letterSpacing: "0.06em", textTransform: "uppercase", padding: "2px 7px",
+      background: fundo, color: tom === "accent" ? "#fff" : "var(--color-neutral-700)",
+      border: tom === "accent" ? "none" : "1px solid var(--color-divider)",
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+    </svg>
+  );
+}
+
+function HeartIcon({ filled }) {
+  return (
+    <svg viewBox="0 0 24 24" width="21" height="21" fill={filled ? "currentColor" : "none"}
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+    </svg>
+  );
+}
+
+function WhatsAppIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="21" height="21" fill="currentColor" aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413" />
+    </svg>
+  );
+}
+
+function IconButton({ label, onClick, href, active, children }) {
+  const style = {
+    border: "none", background: "none", cursor: "pointer", padding: 0,
+    flexShrink: 0, width: 34, height: 34, lineHeight: 1,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    color: active ? "var(--color-accent)" : "var(--color-neutral-400)",
+  };
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" aria-label={label} title={label} style={style}>
+        {children}
+      </a>
+    );
+  }
+  return <button onClick={onClick} aria-label={label} title={label} style={style}>{children}</button>;
+}
+
+// ---------------------------------------------------------------------------
+
+function Card({ r, isFav, onToggleFav }) {
+  const meta = [r.colecao, r.rendimento, r.tempo].filter(Boolean);
+  return (
+    <div style={{
+      borderBottom: "2px solid var(--color-divider)", padding: "20px 0",
+      display: "flex", gap: 12, alignItems: "flex-start",
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <Tag categoria={r.categoria} />
+          {r.testada && <Etiqueta tom="accent">Já fiz</Etiqueta>}
+          {r.idioma === "en" && <Etiqueta>EN</Etiqueta>}
+        </div>
+        <h3 style={{ margin: "0 0 4px", fontFamily: "var(--font-heading)", fontWeight: 800, textTransform: "uppercase", fontSize: 19, lineHeight: 1.15 }}>
+          <a href={"#/receita/" + r.id} style={{ color: "inherit", textDecoration: "none" }}>{r.titulo}</a>
+        </h3>
+        {(r.subtitulo || r.titulo_original) && (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 6 }}>
+            {r.subtitulo || r.titulo_original}
+          </div>
+        )}
+        {meta.length > 0 && (
+          <div style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase", color: "var(--color-neutral-800)", marginBottom: 8 }}>
+            {meta.join(" · ")}
+          </div>
+        )}
+        {r.resumo && (
+          <p style={{ margin: "0 0 8px", fontSize: 14, lineHeight: 1.55, color: "var(--color-neutral-900)" }}>{r.resumo}</p>
+        )}
+        <div style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+          {r.n_ingredientes > 0 && <span>{r.n_ingredientes} ingredientes · </span>}
+          <span style={{ fontStyle: "italic" }}>{r.fonte}</span>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0, width: 34 }}>
+        <IconButton
+          label={isFav ? "Remover dos favoritos" : "Salvar nos favoritos"}
+          onClick={() => onToggleFav(r.id)}
+          active={isFav}
+        >
+          <HeartIcon filled={isFav} />
+        </IconButton>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function CorpoReceita({ corpo, marcados, alternarMarcado }) {
+  const blocos = useMemo(() => parseMarkdown(corpo), [corpo]);
+  // Só a lista que estiver embaixo de um título "Ingredientes" vira checklist.
+  let emIngredientes = false;
+
+  return (
+    <div>
+      {blocos.map((b, i) => {
+        if (b.tipo === "titulo") {
+          // Só um "##" troca de seção. Um "###" dentro de Ingredientes (ex:
+          // "Molho de missô") continua sendo lista de ingredientes.
+          if (b.nivel === 2) emIngredientes = semAcento(b.texto).startsWith("ingrediente");
+          const Tagname = b.nivel === 2 ? "h2" : "h3";
+          return (
+            <Tagname key={i} style={{
+              fontFamily: "var(--font-heading)", fontWeight: 800, textTransform: "uppercase",
+              fontSize: b.nivel === 2 ? 15 : 13, letterSpacing: "0.06em",
+              margin: b.nivel === 2 ? "32px 0 12px" : "22px 0 8px",
+              paddingBottom: b.nivel === 2 ? 6 : 0,
+              borderBottom: b.nivel === 2 ? "2px solid var(--color-divider)" : "none",
+              color: b.nivel === 2 ? "var(--color-text)" : "var(--color-neutral-800)",
+            }}>
+              <Inline texto={b.texto} />
+            </Tagname>
+          );
+        }
+        if (b.tipo === "lista") {
+          const checklist = emIngredientes;
+          return (
+            <ul key={i} style={{ margin: "0 0 12px", padding: 0, listStyle: "none" }}>
+              {b.itens.map((item, j) => {
+                const chave = i + ":" + j;
+                const marcado = checklist && marcados.has(chave);
+                return (
+                  <li
+                    key={j}
+                    onClick={checklist ? () => alternarMarcado(chave) : undefined}
+                    style={{
+                      display: "flex", gap: 10, alignItems: "baseline",
+                      padding: "7px 0", borderBottom: "1px solid var(--color-hairline)",
+                      cursor: checklist ? "pointer" : "default",
+                      opacity: marcado ? 0.42 : 1,
+                      textDecoration: marcado ? "line-through" : "none",
+                      userSelect: checklist ? "none" : "auto",
+                    }}
+                  >
+                    <span aria-hidden="true" style={{
+                      flexShrink: 0, width: 13, height: 13, marginTop: 4,
+                      border: "1.5px solid " + (marcado ? "var(--color-accent)" : "var(--color-neutral-400)"),
+                      background: marcado ? "var(--color-accent)" : "transparent",
+                      borderRadius: checklist ? 2 : "50%",
+                      transform: checklist ? "none" : "scale(0.45)",
+                    }} />
+                    <span><Inline texto={item} /></span>
+                  </li>
+                );
+              })}
+            </ul>
+          );
+        }
+        if (b.tipo === "passos") {
+          return (
+            <ol key={i} style={{ margin: "0 0 12px", padding: 0, listStyle: "none", counterReset: "passo" }}>
+              {b.itens.map((item, j) => (
+                <li key={j} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "9px 0", borderBottom: "1px solid var(--color-hairline)" }}>
+                  <span style={{
+                    flexShrink: 0, fontFamily: "var(--font-heading)", fontWeight: 800,
+                    fontSize: 13, color: "var(--color-accent)", minWidth: 20,
+                  }}>
+                    {j + 1}
+                  </span>
+                  <span><Inline texto={item} /></span>
+                </li>
+              ))}
+            </ol>
+          );
+        }
+        return (
+          <p key={i} style={{ margin: "0 0 12px", lineHeight: 1.6 }}>
+            <Inline texto={b.texto} />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
+  const [marcados, setMarcados] = useState(new Set());
+  const [cozinha, setCozinha] = useState(false);
+  const wakeLock = useRef(null);
+
+  useEffect(() => {
+    setMarcados(new Set());
+    setCozinha(false);
+    window.scrollTo(0, 0);
+  }, [r.id]);
+
+  // Modo cozinha: aumenta tudo e tenta segurar a tela acesa. O Wake Lock não
+  // existe em todo navegador — se não existir, o resto do modo funciona igual.
+  useEffect(() => {
+    document.body.setAttribute("data-cozinha", cozinha ? "1" : "0");
+    let cancelado = false;
+    async function segurarTela() {
+      if (!cozinha || !navigator.wakeLock) return;
+      try {
+        const lock = await navigator.wakeLock.request("screen");
+        if (cancelado) { lock.release(); return; }
+        wakeLock.current = lock;
+      } catch (e) {
+        // negado ou indisponível — segue sem
+      }
+    }
+    if (cozinha) segurarTela();
+    return () => {
+      cancelado = true;
+      document.body.setAttribute("data-cozinha", "0");
+      if (wakeLock.current) {
+        wakeLock.current.release().catch(() => {});
+        wakeLock.current = null;
+      }
+    };
+  }, [cozinha]);
+
+  const alternarMarcado = useCallback((chave) => {
+    setMarcados((atual) => {
+      const prox = new Set(atual);
+      prox.has(chave) ? prox.delete(chave) : prox.add(chave);
+      return prox;
+    });
+  }, []);
+
+  const meta = [
+    r.rendimento && ["Rende", r.rendimento],
+    r.tempo && ["Tempo", r.tempo],
+    r.dificuldade && ["Dificuldade", r.dificuldade],
+    r.colecao && ["Coleção", r.colecao],
+  ].filter(Boolean);
+
+  const textoZap = `Receita: ${r.titulo}${r.fonte ? " (" + r.fonte + ")" : ""}\n${location.href}`;
+
+  return (
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "0 20px 60px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "20px 0 4px" }}>
+        <button
+          onClick={onVoltar}
+          style={{
+            background: "none", border: "none", cursor: "pointer", padding: "6px 0",
+            fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 11.5,
+            letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-accent-700)",
+          }}
+        >
+          ← Todas as receitas
+        </button>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <IconButton label="Compartilhar no WhatsApp" href={"https://wa.me/?text=" + encodeURIComponent(textoZap)}>
+            <WhatsAppIcon />
+          </IconButton>
+          <IconButton
+            label={isFav ? "Remover dos favoritos" : "Salvar nos favoritos"}
+            onClick={() => onToggleFav(r.id)}
+            active={isFav}
+          >
+            <HeartIcon filled={isFav} />
+          </IconButton>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 12px" }}>
+        <Tag categoria={r.categoria} />
+        {r.testada && <Etiqueta tom="accent">Já fiz</Etiqueta>}
+        {r.idioma === "en" && <Etiqueta>Original em inglês</Etiqueta>}
+      </div>
+
+      <h1 style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: 1.02, textTransform: "uppercase", letterSpacing: "-0.01em" }}>
+        {r.titulo}
+      </h1>
+      {(r.subtitulo || r.titulo_original) && (
+        <p style={{ margin: "8px 0 0", fontSize: 16, color: "var(--color-neutral-700)" }}>
+          {r.titulo_original && <span style={{ marginRight: 8 }}>{r.titulo_original}</span>}
+          {r.subtitulo}
+        </p>
+      )}
+
+      {meta.length > 0 && (
+        <div style={{
+          display: "flex", flexWrap: "wrap", gap: "0 28px",
+          borderTop: "2px solid var(--color-divider)", borderBottom: "2px solid var(--color-divider)",
+          margin: "20px 0 0", padding: "12px 0",
+        }}>
+          {meta.map(([rotulo, valor]) => (
+            <div key={rotulo} style={{ padding: "4px 0" }}>
+              <div style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-neutral-400)" }}>
+                {rotulo}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{valor}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ margin: "16px 0 0" }}>
+        <button
+          onClick={() => setCozinha((c) => !c)}
+          style={{
+            fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10.5,
+            letterSpacing: "0.06em", textTransform: "uppercase", padding: "7px 12px",
+            cursor: "pointer",
+            border: "1.5px solid " + (cozinha ? "var(--color-accent)" : "var(--color-divider)"),
+            background: cozinha ? "var(--color-accent)" : "none",
+            color: cozinha ? "#fff" : "var(--color-neutral-700)",
+          }}
+        >
+          {cozinha ? "Sair do modo cozinha" : "Modo cozinha"}
+        </button>
+        {cozinha && (
+          <span style={{ marginLeft: 10, fontSize: 12, color: "var(--color-neutral-700)" }}>
+            Texto maior e tela acesa. Toque nos ingredientes para riscar.
+          </span>
+        )}
+      </div>
+
+      <div style={{ marginTop: 8 }}>
+        <CorpoReceita corpo={r.corpo} marcados={marcados} alternarMarcado={alternarMarcado} />
+      </div>
+
+      <div style={{ borderTop: "2px solid var(--color-divider)", marginTop: 32, paddingTop: 14 }}>
+        <div style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-neutral-400)", marginBottom: 4 }}>
+          Fonte
+        </div>
+        <div style={{ fontSize: 14 }}>
+          {r.fonte_url
+            ? <a href={r.fonte_url} target="_blank" rel="noopener noreferrer">{r.fonte} ↗</a>
+            : (r.fonte || "Receita própria")}
+          {r.autor && <span style={{ color: "var(--color-neutral-700)" }}> — {r.autor}</span>}
+        </div>
+        {r.tags && r.tags.length > 0 && (
+          <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {r.tags.map((t) => <Etiqueta key={t}>{t}</Etiqueta>)}
+          </div>
+        )}
+        <div style={{ marginTop: 14, fontSize: 12, color: "var(--color-neutral-700)" }}>
+          <a href={"https://github.com/receitasecomidas/main/edit/main/receitas/" + r.id + ".md"} target="_blank" rel="noopener noreferrer">
+            Editar esta receita no GitHub ↗
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function Filtros({ dados, colecao, setColecao, categoria, setCategoria, busca, setBusca, limpar, temFiltro }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "16px 0 4px" }}>
+      <input
+        type="search"
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+        placeholder="Buscar receita ou ingrediente…"
+        aria-label="Buscar"
+        style={{
+          flex: "1 1 240px", minWidth: 0, fontSize: 14, padding: "8px 10px",
+          border: "1.5px solid var(--color-divider)", background: "var(--color-bg)",
+          color: "var(--color-text)",
+        }}
+      />
+      {dados.colecoes.map((c) => {
+        const ativo = colecao === c;
+        return (
+          <button
+            key={c}
+            onClick={() => setColecao(ativo ? "" : c)}
+            style={{
+              fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10.5,
+              letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 10px", cursor: "pointer",
+              border: "1.5px solid " + (ativo ? "var(--color-accent)" : "var(--color-divider)"),
+              background: ativo ? "var(--color-accent)" : "none",
+              color: ativo ? "#fff" : "var(--color-neutral-700)",
+            }}
+          >
+            {c}
+          </button>
+        );
+      })}
+      <select
+        value={categoria}
+        onChange={(e) => setCategoria(e.target.value)}
+        aria-label="Filtrar por categoria"
+        style={{
+          fontSize: 12.5, padding: "6px 8px", border: "1.5px solid var(--color-divider)",
+          background: "var(--color-bg)", color: "var(--color-text)", cursor: "pointer", maxWidth: 220,
+        }}
+      >
+        <option value="">Todas as categorias</option>
+        {dados.categorias.map((c) => (
+          <option key={c} value={c}>{categoriaDe(c).label}</option>
+        ))}
+      </select>
+      {temFiltro && (
+        <button
+          onClick={limpar}
+          style={{ fontSize: 12, color: "var(--color-accent-700)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: "6px 2px" }}
+        >
+          Limpar filtros
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Rodape({ dados }) {
+  return (
+    <div style={{ borderTop: "2px solid var(--color-divider)", marginTop: 24 }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px 48px" }}>
+        <div style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-neutral-400)", marginBottom: 8 }}>
+          Créditos
+        </div>
+        <p style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--color-neutral-700)", margin: "0 0 10px" }}>
+          Este caderno reúne receitas próprias e receitas de terceiros que uso. Cada receita traz a fonte
+          de onde veio. As receitas de cursos e livros aparecem aqui apenas como formulação — ingredientes
+          e modo de preparo — sem o texto dos materiais originais. Se você é autor de alguma e quer
+          correção de crédito ou remoção, é só abrir uma issue no repositório.
+        </p>
+        <ul style={{ fontSize: 12.5, lineHeight: 1.7, color: "var(--color-neutral-700)", margin: 0, paddingLeft: 18 }}>
+          {dados.fontes.map((f) => <li key={f}>{f}</li>)}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function rotaAtual() {
+  const h = location.hash || "";
+  const m = h.match(/^#\/receita\/(.+)$/);
+  return m ? { tela: "receita", id: decodeURIComponent(m[1]) } : { tela: "lista" };
+}
+
+function App() {
+  const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState(null);
+  const [rota, setRota] = useState(rotaAtual);
+
+  const [favoritos, setFavoritos] = useState(new Set());
+  const [aba, setAba] = useState("todas");
+  const [colecao, setColecao] = useState("");
+  const [categoria, setCategoria] = useState("");
+  const [busca, setBusca] = useState("");
+  const [tema, setTema] = useState(() => {
+    try { return document.documentElement.getAttribute("data-theme") || "light"; }
+    catch (e) { return "light"; }
+  });
+
+  useEffect(() => {
+    fetch(ARQUIVO_DADOS)
+      .then((r) => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(setDados)
+      .catch((e) => setErro(e));
+  }, []);
+
+  useEffect(() => {
+    const aoMudar = () => setRota(rotaAtual());
+    window.addEventListener("hashchange", aoMudar);
+    return () => window.removeEventListener("hashchange", aoMudar);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("receitas:favoritos");
+      if (raw) setFavoritos(new Set(JSON.parse(raw)));
+    } catch (e) {
+      // sem favoritos salvos ainda
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", tema);
+    try { localStorage.setItem("receitas:tema", tema); } catch (e) {}
+  }, [tema]);
+
+  const alternarFav = useCallback((id) => {
+    setFavoritos((atual) => {
+      const prox = new Set(atual);
+      prox.has(id) ? prox.delete(id) : prox.add(id);
+      try { localStorage.setItem("receitas:favoritos", JSON.stringify([...prox])); }
+      catch (e) { console.error("Não foi possível salvar o favorito agora.", e); }
+      return prox;
+    });
+  }, []);
+
+  const buscaNorm = useMemo(() => semAcento(busca.trim()), [busca]);
+
+  const filtradas = useMemo(() => {
+    if (!dados) return [];
+    let lista = dados.receitas;
+    if (aba === "testadas") lista = lista.filter((r) => r.testada);
+    if (aba === "favoritas") lista = lista.filter((r) => favoritos.has(r.id));
+    if (colecao) lista = lista.filter((r) => r.colecao === colecao);
+    if (categoria) lista = lista.filter((r) => r.categoria === categoria);
+    if (buscaNorm) {
+      const termos = buscaNorm.split(/\s+/);
+      lista = lista.filter((r) => termos.every((t) => r.busca.includes(t)));
+    }
+    return lista;
+  }, [dados, aba, favoritos, colecao, categoria, buscaNorm]);
+
+  if (erro) {
+    return (
+      <div style={{ maxWidth: 620, margin: "60px auto", padding: "0 20px" }}>
+        <h1 style={{ fontSize: 24, textTransform: "uppercase" }}>Não consegui carregar as receitas</h1>
+        <p style={{ color: "var(--color-neutral-700)" }}>
+          O site lê <code>dados/receitas.json</code>. Se você abriu este arquivo com clique duplo
+          (<code>file://</code>), o navegador bloqueia essa leitura — rode um servidor local:
+        </p>
+        <pre style={{ background: "var(--color-neutral-200)", padding: 12, overflowX: "auto" }}>
+python3 -m http.server 8000
+        </pre>
+        <p style={{ color: "var(--color-neutral-700)", fontSize: 13 }}>
+          Se o JSON não existe ainda, gere com <code>python3 scripts/build_index.py</code>.
+        </p>
+      </div>
+    );
+  }
+
+  if (!dados) {
+    return <div style={{ padding: "60px 20px", textAlign: "center", color: "var(--color-neutral-700)" }}>Carregando…</div>;
+  }
+
+  if (rota.tela === "receita") {
+    const r = dados.receitas.find((x) => x.id === rota.id);
+    if (r) {
+      return (
+        <div style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)" }}>
+          <Detalhe
+            r={r}
+            isFav={favoritos.has(r.id)}
+            onToggleFav={alternarFav}
+            onVoltar={() => { location.hash = ""; }}
+          />
+          <Rodape dados={dados} />
+        </div>
+      );
+    }
+  }
+
+  const abas = [
+    { key: "todas", label: "Todas" },
+    { key: "testadas", label: "Já fiz" },
+    { key: "favoritas", label: "Favoritas" },
+  ];
+  const temFiltro = !!(colecao || categoria || busca);
+  const limpar = () => { setColecao(""); setCategoria(""); setBusca(""); };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--color-bg)", color: "var(--color-text)" }}>
+      {/* HEADER — identidade fixa (grafite/claro), não muda com o tema */}
+      <div style={{ background: "var(--color-header-bg)", padding: "32px 20px 16px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+            <div>
+              <h1 style={{ fontSize: "clamp(30px, 5vw, 52px)", lineHeight: 0.95, textTransform: "uppercase", letterSpacing: "-0.01em", color: "var(--color-header-text)" }}>
+                Receitas<br />e comidas
+              </h1>
+              <p style={{ margin: "12px 0 0", fontSize: 13.5, color: "var(--color-header-muted)", maxWidth: 520 }}>
+                Caderno de receitas: as minhas e as que uso de outras fontes, sempre creditadas.
+              </p>
+            </div>
+            <button
+              onClick={() => setTema(tema === "dark" ? "light" : "dark")}
+              aria-label={tema === "dark" ? "Usar tema claro" : "Usar tema escuro"}
+              title={tema === "dark" ? "Usar tema claro" : "Usar tema escuro"}
+              style={{
+                background: "none", border: "1.5px solid var(--color-header-muted)", cursor: "pointer",
+                width: 34, height: 34, flexShrink: 0, color: "var(--color-header-subtle)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              {tema === "dark" ? <SunIcon /> : <MoonIcon />}
+            </button>
+          </div>
+
+          <div style={{ display: "flex", gap: 18, marginTop: 22, borderTop: "2px solid var(--color-header-divider)", paddingTop: 10, flexWrap: "wrap" }}>
+            {abas.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setAba(t.key)}
+                style={{
+                  background: "none", border: "none", cursor: "pointer", padding: "2px 0",
+                  fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 12.5,
+                  letterSpacing: "0.06em", textTransform: "uppercase",
+                  color: aba === t.key ? "var(--color-header-accent)" : "var(--color-header-muted)",
+                  borderBottom: "2px solid " + (aba === t.key ? "var(--color-header-accent)" : "transparent"),
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+            <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-header-muted)", alignSelf: "center" }}>
+              {dados.total} receitas
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 20px" }}>
+        <Filtros
+          dados={dados}
+          colecao={colecao} setColecao={setColecao}
+          categoria={categoria} setCategoria={setCategoria}
+          busca={busca} setBusca={setBusca}
+          limpar={limpar} temFiltro={temFiltro}
+        />
+
+        <div style={{ fontSize: 11.5, color: "var(--color-neutral-700)", padding: "10px 0 0", borderTop: "2px solid var(--color-divider)", marginTop: 12 }}>
+          {filtradas.length} {filtradas.length === 1 ? "receita" : "receitas"}
+        </div>
+
+        {filtradas.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "48px 20px" }}>
+            <p style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+              {aba === "favoritas"
+                ? "Você ainda não salvou nenhuma receita. Toque no coração para salvar."
+                : aba === "testadas"
+                ? "Nenhuma receita marcada como feita ainda. Marque com testada: true no arquivo .md."
+                : "Nenhuma receita encontrada com esses filtros."}
+            </p>
+          </div>
+        ) : (
+          <div>
+            {filtradas.map((r) => (
+              <Card key={r.id} r={r} isFav={favoritos.has(r.id)} onToggleFav={alternarFav} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Rodape dados={dados} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
