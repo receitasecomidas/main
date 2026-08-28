@@ -119,6 +119,7 @@ const CATEGORIAS = {
   "buffet frio":     { label: "Buffet frio",     estilo: "neutral" },
   fermentado:        { label: "Fermentado",      estilo: "accent" },
   "bebida fermentada": { label: "Bebida fermentada", estilo: "accent" },
+  brunch:            { label: "Brunch",          estilo: "neutral" },
 };
 
 const ESTILO_TAG = {
@@ -154,7 +155,7 @@ const GLIFOS = Object.keys(FRACOES).join("");
 // Toda fração acima é reconhecida na LEITURA da receita. Mas na hora de
 // escrever o resultado só saem as que alguém mede numa cozinha: ⅖ de grama
 // não existe, 2,4 g existe.
-const FRACOES_SAIDA = ["½", "⅓", "⅔", "¼", "¾"];
+const FRACOES_SAIDA = ["½", "⅓", "⅔", "¼", "¾", "⅙", "⅛"];
 
 // Um "número" é: misto (1 1/2 ou 1½), fração (1/2), fração unicode (½)
 // ou decimal com ponto ou vírgula (250, 1.2, 1,5). Ordem importa: o mais
@@ -168,6 +169,8 @@ const NUM = "(?:\\d+\\s+\\d+\\s*/\\s*\\d+" +
 const RE_ABRE = new RegExp("^(\\s*)(" + NUM + ")");
 // "2 a 3 colheres", "3-4 dentes". O \b evita casar o "a" de "1 abobrinha".
 const RE_FAIXA = new RegExp("^(\\s*(?:a|à|até|to|-|–|—)\\s*)(" + NUM + ")", "i");
+// "4 tbsp/56 g" — unidade em letras, barra, segunda medida.
+const RE_DUPLA = new RegExp("^(\\s*[a-zA-Z]+\\.?\\s*/\\s*)(" + NUM + ")");
 
 function valorNumerico(txt) {
   const t = String(txt).trim();
@@ -221,6 +224,17 @@ function escalaLinha(linha, fator) {
 
   let quantidade = formataNumero(valorNumerico(abre[2]) * fator);
   let consumido = abre[0].length;
+
+  // Medida dupla: "4 tbsp/56 g", "1 cup/225 g", "4½ lb/2kg". O número depois
+  // da barra tem de escalar junto, senão quem cozinha pelo grama recebe a
+  // quantidade errada. Exige unidade em letras antes da barra, para não
+  // pegar "2 8-ounce/225-g steaks", onde o 8-ounce descreve a peça e só o 2
+  // é a quantidade.
+  const dupla = linha.slice(consumido).match(RE_DUPLA);
+  if (dupla) {
+    quantidade += dupla[1] + formataNumero(valorNumerico(dupla[2]) * fator);
+    consumido += dupla[0].length;
+  }
 
   const faixa = linha.slice(consumido).match(RE_FAIXA);
   if (faixa) {
