@@ -142,7 +142,8 @@ def main():
         "colecoes": valores("colecao"),
         "categorias": valores("categoria"),
         "cozinhas": valores("cozinha"),
-        "fontes": valores("fonte"),
+        # Sem lista agregada de fontes: o rodape nao a exibe mais. O credito de
+        # cada receita continua vindo do campo "fonte" do proprio .md.
         "total": len(receitas),
     }
 
