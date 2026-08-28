@@ -118,13 +118,7 @@ O script não tem dependência nenhuma — roda com o Python que já vem no sist
 
 O site funciona como recorte de consulta: **só a formulação das receitas** — ingredientes e
 modo de preparo — nunca o texto dos materiais de origem. Cada receita carrega a fonte de onde
-veio, e o rodapé do site lista todas.
-
-| Coleção | Receitas | Fonte |
-|---|---|---|
-| Ramen | 85 | *The Ramen_Lord Book of Ramen*, de Mike Satinover e Scott Satinover |
-| Washoku | 9 | Apostila do curso Washoku — Culinária Japonesa (Aizome) |
-| Sushi | 6 | Apostila do curso avançado de sushi (André) |
+veio.
 
 As receitas de ramen estão no inglês original (`idioma: en`) para não introduzir erro de
 tradução nas medidas.
