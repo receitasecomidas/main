@@ -425,7 +425,7 @@ function Card({ r, isFav, onToggleFav }) {
           {r.testada && <Etiqueta tom="accent">Já fiz</Etiqueta>}
           {r.idioma === "en" && <Etiqueta>EN</Etiqueta>}
         </div>
-        <h3 style={{ margin: "0 0 4px", fontFamily: "var(--font-heading)", fontWeight: 800, textTransform: "uppercase", fontSize: 19, lineHeight: 1.15 }}>
+        <h3 style={{ margin: "0 0 4px", fontFamily: "var(--font-heading)", fontWeight: 800, textTransform: "uppercase", fontSize: 19, lineHeight: 1.15, overflowWrap: "anywhere" }}>
           <a href={"#/receita/" + r.id} style={{ color: "inherit", textDecoration: "none" }}>{r.titulo}</a>
         </h3>
         {(r.subtitulo || r.titulo_original) && (
@@ -615,7 +615,7 @@ function Escala({ fator, setFator }) {
             placeholder="1,5"
             aria-label="Multiplicador personalizado"
             style={{
-              width: 58, fontSize: 13, padding: "6px 8px", textAlign: "right",
+              width: 58, fontSize: 16, padding: "6px 8px", textAlign: "right",
               border: "1.5px solid " + (!ehPreset ? "var(--color-accent)" : "var(--color-divider)"),
               background: "var(--color-bg)", color: "var(--color-text)",
             }}
@@ -724,7 +724,7 @@ function Detalhe({ r, isFav, onToggleFav, onVoltar }) {
         {r.idioma === "en" && <Etiqueta>Original em inglês</Etiqueta>}
       </div>
 
-      <h1 style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: 1.02, textTransform: "uppercase", letterSpacing: "-0.01em" }}>
+      <h1 style={{ fontSize: "clamp(26px, 5vw, 40px)", lineHeight: 1.02, textTransform: "uppercase", letterSpacing: "-0.01em", overflowWrap: "anywhere" }}>
         {r.titulo}
       </h1>
       {(r.subtitulo || r.titulo_original) && (
@@ -818,7 +818,7 @@ function Filtros({ dados, colecao, setColecao, categoria, setCategoria, busca, s
         placeholder="Buscar receita ou ingrediente…"
         aria-label="Buscar"
         style={{
-          flex: "1 1 240px", minWidth: 0, fontSize: 14, padding: "8px 10px",
+          flex: "1 1 240px", minWidth: 0, fontSize: 16, padding: "8px 10px",
           border: "1.5px solid var(--color-divider)", background: "var(--color-bg)",
           color: "var(--color-text)",
         }}
@@ -846,7 +846,7 @@ function Filtros({ dados, colecao, setColecao, categoria, setCategoria, busca, s
         onChange={(e) => setCategoria(e.target.value)}
         aria-label="Filtrar por categoria"
         style={{
-          fontSize: 12.5, padding: "6px 8px", border: "1.5px solid var(--color-divider)",
+          fontSize: 16, padding: "6px 8px", border: "1.5px solid var(--color-divider)",
           background: "var(--color-bg)", color: "var(--color-text)", cursor: "pointer", maxWidth: 220,
         }}
       >
